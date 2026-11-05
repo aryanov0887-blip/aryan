@@ -47,7 +47,7 @@ jobs:
             -e 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' \
             -e 's/compileSdk = 34/compileSdk = 36/g' {} \;
             
-      - name: Configure Android notifications
+            - name: Configure Android notifications
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -66,13 +66,13 @@ jobs:
               assert count == 1, "compileOptions block not found"
 
           if "desugar_jdk_libs" not in text:
-              text, count = re.subn(
-                  r"(dependencies\s*\{)",
-                  r'\1\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
-                  text,
-                  count=1
-              )
-              assert count == 1, "dependencies block not found"
+              dependency = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")\n'
+              match = re.search(r"dependencies\s*\{", text)
+
+              if match:
+                  text = text[:match.end()] + "\n" + dependency + text[match.end():]
+              else:
+                  text += "\n\ndependencies {\n" + dependency + "}\n"
 
           gradle.write_text(text)
 
