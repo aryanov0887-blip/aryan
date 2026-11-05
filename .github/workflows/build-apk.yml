@@ -1,4 +1,3 @@
-
 name: Build Android APK
 
 on:
@@ -36,7 +35,7 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
-        
+
       - name: Fix file_picker Android SDK
         run: |
           find "$HOME/.pub-cache" -type f \( -path '*/file_picker-*/android/build.gradle' -o -path '*/file_picker-*/android/build.gradle.kts' \) -print -exec sed -i \
@@ -46,8 +45,8 @@ jobs:
             -e 's/compileSdk 34/compileSdk 36/g' \
             -e 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' \
             -e 's/compileSdk = 34/compileSdk = 36/g' {} \;
-            
-            - name: Configure Android notifications
+
+      - name: Configure Android notifications
         run: |
           python3 - <<'PY'
           from pathlib import Path
