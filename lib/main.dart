@@ -128,13 +128,15 @@ class _TaskEditorState extends State<TaskEditor>{
       Row(children:[Expanded(child:DropdownButton<int>(isExpanded:true,value:m,items:List.generate(12,(i)=>DropdownMenuItem(value:i+1,child:Text(months[i]))),onChanged:(v)=>setD(()=>m=v!))),const SizedBox(width:8),Expanded(child:DropdownButton<int>(isExpanded:true,value:y,items:List.generate(11,(i)=>DropdownMenuItem(value:initial.year-5+i,child:Text('${initial.year-5+i}'))),onChanged:(v)=>setD(()=>y=v!)))]),
       DropdownButton<int>(value:d.clamp(1,Jalali(y,m,1).monthLength),items:List.generate(Jalali(y,m,1).monthLength,(i)=>DropdownMenuItem(value:i+1,child:Text('${i+1}'))),onChanged:(v)=>setD(()=>d=v!)),
     ]),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('لغو')),FilledButton(onPressed:()=>Navigator.pop(ctx,Jalali(y,m,d.clamp(1,Jalali(y,m,1).monthLength))),child:const Text('تأیید'))]));});
-    if(picked!=null)setState((){
-      final g=picked.toDateTime();
-      final newStart=DateTime(g.year,g.month,g.day,start.hour,start.minute);
-      final duration=end.difference(start);
-      start=newStart;
-      end=newStart.add(duration.isNegative?const Duration(hours:1):duration);
-    });
+    if (picked != null) {
+      setState(() {
+        final g = picked.toDateTime();
+        final newStart = DateTime(g.year, g.month, g.day, start.hour, start.minute);
+        final duration = end.difference(start);
+        start = newStart;
+        end = newStart.add(duration.isNegative ? const Duration(hours: 1) : duration);
+      });
+    }
   }
   Future<void> chooseTime(bool isStart)async{final old=isStart?start:end;final p=await showTimePicker(context:context,initialTime:TimeOfDay.fromDateTime(old),builder:(c,w)=>Directionality(textDirection:TextDirection.rtl,child:w!));if(p!=null)setState(()=>isStart?start=DateTime(start.year,start.month,start.day,p.hour,p.minute):end=DateTime(end.year,end.month,end.day,p.hour,p.minute));}
   Future<void> addFiles()async{
