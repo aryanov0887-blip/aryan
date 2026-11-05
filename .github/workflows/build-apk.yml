@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -27,7 +28,7 @@ jobs:
           channel: stable
           cache: true
 
-           - name: Generate Android platform project
+      - name: Generate Android platform project
         run: |
           flutter create --platforms=android --org ir.aryan.taskplanner .
           sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' android/app/build.gradle.kts
