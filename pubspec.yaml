@@ -15,6 +15,9 @@ dependencies:
   shamsi_date: ^1.1.1
   shared_preferences: ^2.3.2
   file_picker: ^8.1.2
+  flutter_local_notifications: ^19.5.0
+  flutter_timezone: ^5.1.1
+  timezone: ^0.10.1
 
 dev_dependencies:
   flutter_test:
