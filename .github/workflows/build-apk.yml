@@ -46,6 +46,75 @@ jobs:
             -e 's/compileSdk 34/compileSdk 36/g' \
             -e 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/g' \
             -e 's/compileSdk = 34/compileSdk = 36/g' {} \;
+            
+      - name: Configure Android notifications
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gradle = Path("android/app/build.gradle.kts")
+          text = gradle.read_text()
+
+          if "isCoreLibraryDesugaringEnabled" not in text:
+              text, count = re.subn(
+                  r"(compileOptions\s*\{)",
+                  r"\1\n        isCoreLibraryDesugaringEnabled = true",
+                  text,
+                  count=1
+              )
+              assert count == 1, "compileOptions block not found"
+
+          if "desugar_jdk_libs" not in text:
+              text, count = re.subn(
+                  r"(dependencies\s*\{)",
+                  r'\1\n    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")',
+                  text,
+                  count=1
+              )
+              assert count == 1, "dependencies block not found"
+
+          gradle.write_text(text)
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+
+          if "android.permission.RECEIVE_BOOT_COMPLETED" not in text:
+              text, count = re.subn(
+                  r"(<manifest\b[^>]*>)",
+                  r'\1\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>',
+                  text,
+                  count=1
+              )
+              assert count == 1, "manifest tag not found"
+
+          if "ScheduledNotificationReceiver" not in text:
+              receivers = """
+                  <receiver
+                      android:exported="false"
+                      android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
+                  <receiver
+                      android:exported="false"
+                      android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                          <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                          <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+                      </intent-filter>
+                  </receiver>
+              """
+              text, count = re.subn(
+                  r"(<application\b[^>]*>)",
+                  lambda m: m.group(1) + receivers,
+                  text,
+                  count=1
+              )
+              assert count == 1, "application tag not found"
+
+          manifest.write_text(text)
+          PY
+
       - name: Analyze
         run: flutter analyze
 
