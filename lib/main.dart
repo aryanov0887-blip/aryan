@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -56,6 +57,7 @@ class _HomePageState extends State<HomePage> {
   Jalali shown = Jalali.now();
   bool loading = true;
   final Set<String> collapsed = {};
+  final Map<String, Uint8List> _thumbCache = {};
 
   @override
   void initState() {
@@ -551,10 +553,118 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  void _showImage(Uint8List bytes) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(12),
+        child: GestureDetector(
+          onTap: () => Navigator.pop(ctx),
+          child: InteractiveViewer(child: Image.memory(bytes)),
+        ),
+      ),
+    );
+  }
+
+  Widget _thumb(TaskItem t, int i) {
+    const size = 52.0;
+    final a = t.attachments[i];
+
+    if (a['image'] == true) {
+      final data = a['data'] as String;
+      final key = '${t.id}:$i:${data.length}';
+      final bytes = _thumbCache.putIfAbsent(key, () => base64Decode(data));
+
+      return GestureDetector(
+        onTap: () => _showImage(bytes),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            bytes,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            cacheWidth: 160,
+            gaplessPlayback: true,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: kBarBg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.insert_drive_file_outlined, size: 20, color: kDim),
+          Text(
+            a['name'].toString(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: kDim, fontSize: 9),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _thumbs(TaskItem t) {
+    final count = t.attachments.length;
+    final shownCount = count > 4 ? 4 : count;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (var i = 0; i < shownCount; i++) _thumb(t, i),
+          if (count > 4)
+            Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: kBarBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '+${count - 4}',
+                style: const TextStyle(color: kDim),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusButton({
+    required IconData icon,
+    required Color color,
+    required String tip,
+    required VoidCallback onTap,
+  }) =>
+      IconButton(
+        tooltip: tip,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+        onPressed: onTap,
+        icon: Icon(icon, color: color, size: 28),
+      );
+
   Widget _taskCard(TaskItem t) {
     final finished = t.done || t.notDone;
     final subDone = t.subtasks.where((s) => s.done).length;
     const metaStyle = TextStyle(color: kDim, fontSize: 12.5);
+    const off = Color(0xFF6C7396);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -565,12 +675,13 @@ class _HomePageState extends State<HomePage> {
           borderRadius: BorderRadius.circular(16),
           onTap: () => _openEditor(t),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
+            padding: const EdgeInsets.fromLTRB(4, 8, 0, 10),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                IconButton(
-                  onPressed: () => _toggleDone(t),
-                  icon: Icon(
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Icon(
                     t.done
                         ? Icons.check_circle
                         : t.notDone
@@ -584,77 +695,93 @@ class _HomePageState extends State<HomePage> {
                     size: 28,
                   ),
                 ),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        t.title,
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: finished ? kDim : kText,
-                          decoration:
-                              finished ? TextDecoration.lineThrough : null,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            '${shortDateText(t.start)} • ${timeText(t.start)} - ${timeText(t.end)}',
-                            style: metaStyle,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          t.title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: finished ? kDim : kText,
+                            decoration:
+                                finished ? TextDecoration.lineThrough : null,
                           ),
-                          if (t.reminder != null)
-                            const Icon(
-                              Icons.notifications_none,
-                              size: 16,
-                              color: kDim,
-                            ),
-                          if (t.attachments.isNotEmpty)
-                            const Icon(Icons.attach_file, size: 16, color: kDim),
-                          if (t.repeat != 'none')
-                            const Icon(Icons.repeat, size: 16, color: kDim),
-                          if (t.subtasks.isNotEmpty)
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
                             Text(
-                              '☑ $subDone/${t.subtasks.length}',
+                              '${shortDateText(t.start)} • ${timeText(t.start)} - ${timeText(t.end)}',
                               style: metaStyle,
                             ),
-                          if (t.category != null)
-                            Text(
-                              t.category!,
-                              style: const TextStyle(
-                                color: kAccent,
-                                fontSize: 12.5,
+                            if (t.reminder != null)
+                              const Icon(
+                                Icons.notifications_none,
+                                size: 16,
+                                color: kDim,
                               ),
-                            ),
-                        ],
-                      ),
-                    ],
+                            if (t.attachments.isNotEmpty)
+                              const Icon(
+                                Icons.attach_file,
+                                size: 16,
+                                color: kDim,
+                              ),
+                            if (t.repeat != 'none')
+                              const Icon(Icons.repeat, size: 16, color: kDim),
+                            if (t.flag)
+                              const Icon(Icons.flag, size: 16, color: kAmber),
+                            if (t.subtasks.isNotEmpty)
+                              Text(
+                                '☑ $subDone/${t.subtasks.length}',
+                                style: metaStyle,
+                              ),
+                            if (t.category != null)
+                              Text(
+                                t.category!,
+                                style: const TextStyle(
+                                  color: kAccent,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                          ],
+                        ),
+                        if (t.attachments.isNotEmpty) _thumbs(t),
+                      ],
+                    ),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'مهم',
-                  onPressed: () => _toggleFlag(t),
-                  icon: Icon(
-                    t.flag ? Icons.flag : Icons.flag_outlined,
-                    color: t.flag ? kAmber : kDim,
-                  ),
+                _statusButton(
+                  icon: Icons.check_circle,
+                  color: t.done ? kGreen : off,
+                  tip: 'انجام شد',
+                  onTap: () => _toggleDone(t),
+                ),
+                _statusButton(
+                  icon: Icons.cancel,
+                  color: t.notDone ? kRed : off,
+                  tip: 'انجام نشد',
+                  onTap: () => _toggleNotDone(t),
                 ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: kDim),
+                  padding: EdgeInsets.zero,
                   onSelected: (v) {
                     if (v == 'edit') _openEditor(t);
-                    if (v == 'notdone') _toggleNotDone(t);
+                    if (v == 'flag') _toggleFlag(t);
                     if (v == 'delete') _delete(t);
                   },
                   itemBuilder: (_) => [
                     const PopupMenuItem(value: 'edit', child: Text('ویرایش')),
                     PopupMenuItem(
-                      value: 'notdone',
-                      child: Text(t.notDone ? 'لغو «انجام نشد»' : 'انجام نشد'),
+                      value: 'flag',
+                      child: Text(t.flag ? 'برداشتن علامت مهم' : 'علامت مهم'),
                     ),
                     const PopupMenuItem(value: 'delete', child: Text('حذف')),
                   ],
