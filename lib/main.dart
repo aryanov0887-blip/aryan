@@ -1,165 +1,28 @@
-
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/data/latest_all.dart' as timezone_data;
-import 'package:timezone/timezone.dart' as tz;
 
-const blue = Color(0xFF168FF0);
-const page = Color(0xFFF0F4F7);
-
-const months = [
-  'فروردین', 'اردیبهشت', 'خرداد', 'تیر',
-  'مرداد', 'شهریور', 'مهر', 'آبان',
-  'آذر', 'دی', 'بهمن', 'اسفند'
-];
-
-const weekdays = [
-  'شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه',
-  'چهارشنبه', 'پنجشنبه', 'جمعه'
-];
-
-// ---------------- NOTIFICATIONS ----------------
-
-final notifications = FlutterLocalNotificationsPlugin();
-
-Future<void> initNotifications() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  timezone_data.initializeTimeZones();
-
-  final zone = await FlutterTimezone.getLocalTimezone();
-  tz.setLocalLocation(tz.getLocation(zone.identifier));
-
-  const settings = InitializationSettings(
-    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-  );
-
-  await notifications.initialize(settings);
-
-  final android = notifications.resolvePlatformSpecificImplementation<
-      AndroidFlutterLocalNotificationsPlugin>();
-
-  await android?.requestNotificationsPermission();
-}
-
-int notificationId(String id) {
-  int value = 0;
-  for (final c in id.codeUnits) {
-    value = (value * 31 + c) & 0x7fffffff;
-  }
-  return value;
-}
-
-Future<void> scheduleTaskNotification(TaskItem task) async {
-  final id = notificationId(task.id);
-
-  await notifications.cancel(id);
-
-  if (task.done || task.notDone) return;
-
-  final reminder = task.start.subtract(
-    const Duration(minutes: 5),
-  );
-
-  if (!reminder.isAfter(DateTime.now())) return;
-
-  await notifications.zonedSchedule(
-    id,
-    'یادآوری کار',
-    '${task.title} تا ۵ دقیقه دیگر شروع می‌شود',
-    tz.TZDateTime.from(reminder, tz.local),
-    const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'task_reminders',
-        'یادآوری کارها',
-        channelDescription: 'یادآوری پنج دقیقه قبل از شروع کار',
-        importance: Importance.high,
-        priority: Priority.high,
-      ),
-    ),
-    androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-  );
-}
-
-// ---------------- MAIN ----------------
+import 'editor_page.dart';
+import 'focus_page.dart';
+import 'mine_page.dart';
+import 'models.dart';
+import 'notifications.dart';
+import 'theme.dart';
 
 Future<void> main() async {
-  await initNotifications();
+  WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await initNotifications();
+  } catch (_) {
+    // اگر اعلان‌ها راه نیفتادند، برنامه همچنان باید باز شود
+  }
+
   runApp(const PlannerApp());
 }
-
-// ---------------- TASK MODEL ----------------
-
-class TaskItem {
-  TaskItem({
-    required this.id,
-    required this.title,
-    required this.start,
-    required this.end,
-    this.done = false,
-    this.notDone = false,
-    this.attachments = const [],
-  });
-
-  final String id;
-  final String title;
-  final DateTime start;
-  final DateTime end;
-  final bool done;
-  final bool notDone;
-  final List<Map<String, dynamic>> attachments;
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'start': start.toIso8601String(),
-        'end': end.toIso8601String(),
-        'done': done,
-        'notDone': notDone,
-        'attachments': attachments,
-      };
-
-  factory TaskItem.fromJson(Map<String, dynamic> j) => TaskItem(
-        id: j['id'],
-        title: j['title'],
-        start: DateTime.parse(j['start']),
-        end: DateTime.parse(j['end']),
-        done: j['done'] ?? false,
-        notDone: j['notDone'] ?? false,
-        attachments: List<Map<String, dynamic>>.from(
-          (j['attachments'] ?? []).map(
-            (e) => Map<String, dynamic>.from(e),
-          ),
-        ),
-      );
-
-  TaskItem copy({
-    String? title,
-    DateTime? start,
-    DateTime? end,
-    bool? done,
-    bool? notDone,
-    List<Map<String, dynamic>>? attachments,
-  }) =>
-      TaskItem(
-        id: id,
-        title: title ?? this.title,
-        start: start ?? this.start,
-        end: end ?? this.end,
-        done: done ?? this.done,
-        notDone: notDone ?? this.notDone,
-        attachments: attachments ?? this.attachments,
-      );
-}
-
-// ---------------- APP ----------------
 
 class PlannerApp extends StatelessWidget {
   const PlannerApp({super.key});
@@ -171,21 +34,10 @@ class PlannerApp extends StatelessWidget {
         locale: const Locale('fa', 'IR'),
         supportedLocales: const [Locale('fa', 'IR')],
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: ThemeData(
-          useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: blue),
-          scaffoldBackgroundColor: page,
-          fontFamily: null,
-          appBarTheme: const AppBarTheme(
-            backgroundColor: page,
-            foregroundColor: Colors.black,
-          ),
-        ),
+        theme: buildTheme(),
         home: const HomePage(),
       );
 }
-
-// ---------------- HOME PAGE ----------------
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -196,9 +48,14 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List<TaskItem> tasks = [];
+  List<Completion> completions = [];
+  Map<String, int> focus = {};
+  List<String> categories = ['کاری', 'شخصی', 'آرزوها'];
+  String? filter;
   int tab = 0;
   Jalali shown = Jalali.now();
   bool loading = true;
+  final Set<String> collapsed = {};
 
   @override
   void initState() {
@@ -206,31 +63,61 @@ class _HomePageState extends State<HomePage> {
     _load();
   }
 
+  // ---------------- storage ----------------
+
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
-    final raw = p.getString('tasks_v1');
 
+    final raw = p.getString('tasks_v1');
     if (raw != null) {
       try {
         tasks = (jsonDecode(raw) as List)
-            .map(
-              (e) => TaskItem.fromJson(
-                Map<String, dynamic>.from(e),
-              ),
-            )
+            .map((e) => TaskItem.fromJson(Map<String, dynamic>.from(e)))
             .toList();
       } catch (_) {
         tasks = [];
       }
     }
 
+    final rawC = p.getString('completions_v1');
+    if (rawC != null) {
+      try {
+        completions = (jsonDecode(rawC) as List)
+            .map((e) => Completion.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+      } catch (_) {
+        completions = [];
+      }
+    } else {
+      // نسخه‌ی قدیمی: برای کارهای انجام‌شده سابقه می‌سازیم تا در آمار بیایند
+      completions = tasks
+          .where((t) => t.done)
+          .map((t) => Completion(
+                taskId: t.id,
+                category: t.category,
+                at: t.start,
+              ))
+          .toList();
+    }
+
+    final rawF = p.getString('focus_v1');
+    if (rawF != null) {
+      try {
+        final m = jsonDecode(rawF) as Map;
+        focus = m.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+      } catch (_) {
+        focus = {};
+      }
+    }
+
+    final cats = p.getStringList('categories_v1');
+    if (cats != null) categories = cats;
+
     for (final task in tasks) {
       await scheduleTaskNotification(task);
     }
 
-    if (mounted) {
-      setState(() => loading = false);
-    }
+    if (mounted) setState(() => loading = false);
   }
 
   Future<void> _save() async {
@@ -240,79 +127,231 @@ class _HomePageState extends State<HomePage> {
       'tasks_v1',
       jsonEncode(tasks.map((e) => e.toJson()).toList()),
     );
+    await p.setString(
+      'completions_v1',
+      jsonEncode(completions.map((e) => e.toJson()).toList()),
+    );
+    await p.setString('focus_v1', jsonEncode(focus));
+    await p.setStringList('categories_v1', categories);
   }
 
-  String dateText(DateTime d) {
-    final j = d.toJalali();
-    return '${j.day} ${months[j.month - 1]} ${j.year}';
-  }
+  // ---------------- actions ----------------
 
-  String timeText(DateTime d) =>
-      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-
-  List<TaskItem> get visible => tasks.where((t) {
-        if (tab != 1) return true;
-
-        final j = t.start.toJalali();
-
-        return j.year == shown.year && j.month == shown.month;
-      }).toList()
-        ..sort((a, b) => a.start.compareTo(b.start));
-
-  Future<void> _edit([TaskItem? old]) async {
-    final result = await showModalBottomSheet<TaskItem>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => TaskEditor(existing: old),
+  Future<void> _openEditor([TaskItem? old]) async {
+    final result = await Navigator.of(context).push<EditorResult>(
+      MaterialPageRoute(
+        builder: (_) => TaskEditorPage(
+          existing: old,
+          categories: categories,
+          initialCategory: filter,
+          initialDate: tab == 1 ? shown.toDateTime() : null,
+        ),
+      ),
     );
 
-    if (result != null) {
-      setState(() {
-        final i = tasks.indexWhere((e) => e.id == result.id);
+    if (result == null) return;
 
-        if (i < 0) {
-          tasks.add(result);
-        } else {
-          tasks[i] = result;
-        }
-      });
-
-      await _save();
-      await scheduleTaskNotification(result);
+    if (result.delete) {
+      if (old != null) await _delete(old);
+      return;
     }
-  }
 
-  Future<void> _setStatus(
-    TaskItem t, {
-    required bool done,
-    required bool notDone,
-  }) async {
-    final i = tasks.indexWhere((e) => e.id == t.id);
-
-    if (i == -1) return;
-
-    final updated = t.copy(
-      done: done,
-      notDone: notDone,
-    );
+    final t = result.task;
+    if (t == null) return;
 
     setState(() {
-      tasks[i] = updated;
+      final i = tasks.indexWhere((e) => e.id == t.id);
+      if (i < 0) {
+        tasks.add(t);
+      } else {
+        tasks[i] = t;
+      }
     });
+
+    await _save();
+    await scheduleTaskNotification(t);
+  }
+
+  void _removeLastCompletion(String id) {
+    final i = completions.lastIndexWhere((c) => c.taskId == id);
+    if (i >= 0) completions.removeAt(i);
+  }
+
+  Future<void> _toggleDone(TaskItem t) async {
+    final i = tasks.indexWhere((e) => e.id == t.id);
+    if (i < 0) return;
+
+    TaskItem updated;
+
+    if (t.done) {
+      _removeLastCompletion(t.id);
+      updated = t.copy(done: false);
+    } else {
+      completions.add(
+        Completion(taskId: t.id, category: t.category, at: DateTime.now()),
+      );
+
+      if (t.repeat != 'none') {
+        updated = nextOccurrence(t);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'کار بعدی برای ${shortDateText(updated.start)} تنظیم شد',
+              ),
+            ),
+          );
+        }
+      } else {
+        updated = t.copy(done: true, notDone: false);
+      }
+    }
+
+    setState(() => tasks[i] = updated);
 
     await _save();
     await scheduleTaskNotification(updated);
   }
 
+  Future<void> _toggleNotDone(TaskItem t) async {
+    final i = tasks.indexWhere((e) => e.id == t.id);
+    if (i < 0) return;
+
+    if (t.done) _removeLastCompletion(t.id);
+
+    final updated = t.copy(done: false, notDone: !t.notDone);
+
+    setState(() => tasks[i] = updated);
+
+    await _save();
+    await scheduleTaskNotification(updated);
+  }
+
+  Future<void> _toggleFlag(TaskItem t) async {
+    final i = tasks.indexWhere((e) => e.id == t.id);
+    if (i < 0) return;
+
+    setState(() => tasks[i] = t.copy(flag: !t.flag));
+    await _save();
+  }
+
   Future<void> _delete(TaskItem t) async {
-    setState(() {
-      tasks.removeWhere((e) => e.id == t.id);
-    });
+    setState(() => tasks.removeWhere((e) => e.id == t.id));
 
     await _save();
     await notifications.cancel(notificationId(t.id));
   }
+
+  Future<void> _startFocus() async {
+    final secs = await Navigator.of(context).push<int>(
+      MaterialPageRoute(builder: (_) => const FocusPage()),
+    );
+
+    if (secs == null || secs <= 0) return;
+
+    final k = dayKey(DateTime.now());
+    setState(() => focus[k] = (focus[k] ?? 0) + secs);
+    await _save();
+  }
+
+  void _addCategory(String name) {
+    setState(() => categories.add(name));
+    _save();
+  }
+
+  void _removeCategory(String name) {
+    setState(() {
+      categories.remove(name);
+      tasks = tasks
+          .map((t) => t.category == name ? t.copy(clearCategory: true) : t)
+          .toList();
+      if (filter == name) filter = null;
+    });
+    _save();
+  }
+
+  Future<void> _manageCategories() async {
+    final ctrl = TextEditingController();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setD) => AlertDialog(
+          title: const Text('دسته‌ها'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final c in categories)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(c),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () {
+                          _removeCategory(c);
+                          setD(() {});
+                        },
+                      ),
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: ctrl,
+                          decoration: const InputDecoration(
+                            hintText: 'دسته جدید',
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () {
+                          final n = ctrl.text.trim();
+                          if (n.isEmpty || categories.contains(n)) return;
+                          _addCategory(n);
+                          ctrl.clear();
+                          setD(() {});
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('بستن'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _changeMonth(int delta) {
+    var y = shown.year;
+    var m = shown.month + delta;
+
+    while (m > 12) {
+      m -= 12;
+      y++;
+    }
+    while (m < 1) {
+      m += 12;
+      y--;
+    }
+
+    final len = Jalali(y, m, 1).monthLength;
+    setState(() => shown = Jalali(y, m, shown.day > len ? len : shown.day));
+  }
+
+  // ---------------- build ----------------
 
   @override
   Widget build(BuildContext context) {
@@ -323,149 +362,394 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Scaffold(
-      appBar: tab == 1
-          ? AppBar(
-              title: Row(
-                children: [
-                  IconButton(
-                    onPressed: () =>
-                        setState(() => shown = shown.addMonths(-1)),
-                    icon: const Icon(Icons.chevron_left),
-                  ),
-                  Expanded(
-                    child: Center(
-                      child: Text(
-                        '${months[shown.month - 1]} ${shown.year}',
-                        style: const TextStyle(fontSize: 21),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () =>
-                        setState(() => shown = shown.addMonths(1)),
-                    icon: const Icon(Icons.chevron_right),
-                  ),
-                ],
-              ),
-            )
-          : null,
       body: SafeArea(
-        child: tab == 2
-            ? _mine()
+        child: tab == 0
+            ? _tasksTab()
             : tab == 1
-                ? _calendar()
-                : _tasks(),
+                ? _calendarTab()
+                : MinePage(
+                    tasks: tasks,
+                    completions: completions,
+                    focus: focus,
+                    onStartFocus: _startFocus,
+                  ),
       ),
       floatingActionButton: tab == 2
           ? null
           : FloatingActionButton(
-              onPressed: () => _edit(),
-              backgroundColor: blue,
-              foregroundColor: Colors.white,
+              onPressed: () => _openEditor(),
+              backgroundColor: kAccent,
+              foregroundColor: kOnAccent,
+              shape: const CircleBorder(),
               child: const Icon(Icons.add, size: 32),
             ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (v) => setState(() => tab = v),
-        backgroundColor: page,
         destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.list_alt),
-            label: 'کارها',
-          ),
+          NavigationDestination(icon: Icon(Icons.list_alt), label: 'کارها'),
           NavigationDestination(
             icon: Icon(Icons.calendar_month),
             label: 'تقویم',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.person),
-            label: 'من',
-          ),
+          NavigationDestination(icon: Icon(Icons.person), label: 'من'),
         ],
       ),
     );
   }
 
-  Widget _tasks() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 18),
-            child: Text(
-              'همهٔ کارها',
-              style: Theme.of(context).textTheme.titleLarge,
+  // ---------------- tasks tab ----------------
+
+  Widget _catChip(String label, String? value) {
+    final selected = filter == value;
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: GestureDetector(
+        onTap: () => setState(() => filter = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? kAccent : kChip,
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              color: selected ? kOnAccent : kDim,
             ),
           ),
-          Expanded(
-            child: visible.isEmpty
-                ? const Center(child: Text('هنوز کاری ثبت نشده است'))
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 90),
-                    itemCount: visible.length,
-                    itemBuilder: (_, i) => _taskCard(visible[i]),
-                  ),
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryBar() => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+        child: Row(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _catChip('همه', null),
+                    for (final c in categories) _catChip(c, c),
+                  ],
+                ),
+              ),
+            ),
+            IconButton(
+              tooltip: 'مدیریت دسته‌ها',
+              onPressed: _manageCategories,
+              icon: const Icon(Icons.more_vert, color: kDim),
+            ),
+          ],
+        ),
       );
 
-  Widget _calendar() => Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+  Widget _groupHeader(String key, int count, Color color) {
+    final isCollapsed = collapsed.contains(key);
+
+    return InkWell(
+      onTap: () => setState(() {
+        if (isCollapsed) {
+          collapsed.remove(key);
+        } else {
+          collapsed.add(key);
+        }
+      }),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Text(
+              '$key ($count)',
+              style: TextStyle(fontSize: 18, color: color),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              isCollapsed ? Icons.expand_more : Icons.expand_less,
+              color: kDim,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tasksTab() {
+    final today = dayOnly(DateTime.now());
+    final tomorrow = DateTime(today.year, today.month, today.day + 1);
+
+    final list = tasks
+        .where((t) => filter == null || t.category == filter)
+        .toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+
+    final groups = <String, List<TaskItem>>{
+      'عقب‌افتاده': [],
+      'امروز': [],
+      'فردا': [],
+      'بعداً': [],
+      'پایان‌یافته': [],
+    };
+
+    for (final t in list) {
+      if (t.done || t.notDone) {
+        groups['پایان‌یافته']!.add(t);
+        continue;
+      }
+
+      final d = dayOnly(t.start);
+
+      if (d.isBefore(today)) {
+        groups['عقب‌افتاده']!.add(t);
+      } else if (d == today) {
+        groups['امروز']!.add(t);
+      } else if (d == tomorrow) {
+        groups['فردا']!.add(t);
+      } else {
+        groups['بعداً']!.add(t);
+      }
+    }
+
+    final children = <Widget>[];
+
+    groups.forEach((key, items) {
+      if (items.isEmpty) return;
+
+      children.add(
+        _groupHeader(key, items.length, key == 'عقب‌افتاده' ? kRed : kText),
+      );
+
+      if (!collapsed.contains(key)) {
+        for (final t in items) {
+          children.add(_taskCard(t));
+        }
+      }
+    });
+
+    return Column(
+      children: [
+        _categoryBar(),
+        Expanded(
+          child: children.isEmpty
+              ? const Center(
+                  child: Text(
+                    'هنوز کاری ثبت نشده است',
+                    style: TextStyle(color: kDim),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+                  children: children,
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _taskCard(TaskItem t) {
+    final finished = t.done || t.notDone;
+    final subDone = t.subtasks.where((s) => s.done).length;
+    const metaStyle = TextStyle(color: kDim, fontSize: 12.5);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: kCard,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _openEditor(t),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
             child: Row(
-              children: List.generate(
-                7,
-                (i) => Expanded(
-                  child: Center(
-                    child: Text(
-                      weekdays[i],
-                      style: const TextStyle(
-                        color: Colors.blueGrey,
-                        fontSize: 12,
+              children: [
+                IconButton(
+                  onPressed: () => _toggleDone(t),
+                  icon: Icon(
+                    t.done
+                        ? Icons.check_circle
+                        : t.notDone
+                            ? Icons.cancel
+                            : Icons.radio_button_unchecked,
+                    color: t.done
+                        ? kGreen
+                        : t.notDone
+                            ? kRed
+                            : kDim,
+                    size: 28,
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        t.title,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: finished ? kDim : kText,
+                          decoration:
+                              finished ? TextDecoration.lineThrough : null,
+                        ),
                       ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            '${shortDateText(t.start)} • ${timeText(t.start)} - ${timeText(t.end)}',
+                            style: metaStyle,
+                          ),
+                          if (t.reminder != null)
+                            const Icon(
+                              Icons.notifications_none,
+                              size: 16,
+                              color: kDim,
+                            ),
+                          if (t.attachments.isNotEmpty)
+                            const Icon(Icons.attach_file, size: 16, color: kDim),
+                          if (t.repeat != 'none')
+                            const Icon(Icons.repeat, size: 16, color: kDim),
+                          if (t.subtasks.isNotEmpty)
+                            Text(
+                              '☑ $subDone/${t.subtasks.length}',
+                              style: metaStyle,
+                            ),
+                          if (t.category != null)
+                            Text(
+                              t.category!,
+                              style: const TextStyle(
+                                color: kAccent,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'مهم',
+                  onPressed: () => _toggleFlag(t),
+                  icon: Icon(
+                    t.flag ? Icons.flag : Icons.flag_outlined,
+                    color: t.flag ? kAmber : kDim,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: kDim),
+                  onSelected: (v) {
+                    if (v == 'edit') _openEditor(t);
+                    if (v == 'notdone') _toggleNotDone(t);
+                    if (v == 'delete') _delete(t);
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'edit', child: Text('ویرایش')),
+                    PopupMenuItem(
+                      value: 'notdone',
+                      child: Text(t.notDone ? 'لغو «انجام نشد»' : 'انجام نشد'),
                     ),
+                    const PopupMenuItem(value: 'delete', child: Text('حذف')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------- calendar tab ----------------
+
+  Widget _calendarTab() {
+    final dayTasks = tasks.where((t) {
+      final j = t.start.toJalali();
+      return j.year == shown.year &&
+          j.month == shown.month &&
+          j.day == shown.day;
+    }).toList()
+      ..sort((a, b) => a.start.compareTo(b.start));
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: Row(
+            children: [
+              IconButton(
+                onPressed: () => _changeMonth(-1),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '${months[shown.month - 1]} ${shown.year}',
+                    style: const TextStyle(fontSize: 21, color: kText),
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => _changeMonth(1),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(
+            children: List.generate(
+              7,
+              (i) => Expanded(
+                child: Center(
+                  child: Text(
+                    weekdaysShort[i],
+                    style: const TextStyle(color: kDim, fontSize: 14),
                   ),
                 ),
               ),
             ),
           ),
-          _monthGrid(),
-          const Divider(height: 1),
-          Expanded(
-            child: visible.where((t) {
-              final j = t.start.toJalali();
-              return j.year == shown.year &&
-                  j.month == shown.month &&
-                  j.day == shown.day;
-            }).isEmpty
-                ? const Center(
-                    child: Text('برای این روز کاری ثبت نشده'),
-                  )
-                : ListView(
-                    children: visible.where((t) {
-                      final j = t.start.toJalali();
-                      return j.year == shown.year &&
-                          j.month == shown.month &&
-                          j.day == shown.day;
-                    }).map(_taskCard).toList(),
+        ),
+        _monthGrid(),
+        const Divider(height: 1, color: kTrack),
+        Expanded(
+          child: dayTasks.isEmpty
+              ? const Center(
+                  child: Text(
+                    'برای این روز کاری ثبت نشده',
+                    style: TextStyle(color: kDim),
                   ),
-          ),
-        ],
-      );
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                  children: dayTasks.map(_taskCard).toList(),
+                ),
+        ),
+      ],
+    );
+  }
 
   Widget _monthGrid() {
     final first = Jalali(shown.year, shown.month, 1);
     final offset = first.weekDay - 1;
     final count = first.monthLength;
+    final now = Jalali.now();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        gridDelegate:
-            const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 7,
           childAspectRatio: 1.25,
         ),
@@ -473,11 +757,12 @@ class _HomePageState extends State<HomePage> {
         itemBuilder: (_, i) {
           final day = i - offset + 1;
 
-          if (day < 1 || day > count) {
-            return const SizedBox();
-          }
+          if (day < 1 || day > count) return const SizedBox();
 
           final selected = day == shown.day;
+          final isToday = now.year == shown.year &&
+              now.month == shown.month &&
+              now.day == day;
 
           final has = tasks.any((t) {
             final j = t.start.toJalali();
@@ -499,13 +784,16 @@ class _HomePageState extends State<HomePage> {
                   height: 36,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: selected ? blue : null,
+                    color: selected ? kAccent : null,
                     shape: BoxShape.circle,
+                    border: (isToday && !selected)
+                        ? Border.all(color: kAccent, width: 1.5)
+                        : null,
                   ),
                   child: Text(
                     '$day',
                     style: TextStyle(
-                      color: selected ? Colors.white : Colors.black,
+                      color: selected ? kOnAccent : kText,
                       fontWeight:
                           selected ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -516,7 +804,7 @@ class _HomePageState extends State<HomePage> {
                     width: 5,
                     height: 5,
                     decoration: const BoxDecoration(
-                      color: blue,
+                      color: kAccent,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -527,504 +815,4 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
-  Widget _mine() => Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircleAvatar(
-              radius: 34,
-              backgroundColor: Color(0xFFD7EAF8),
-              child: Icon(Icons.person, color: blue, size: 38),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'برنامه‌ریز شخصی',
-              style: TextStyle(fontSize: 20),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'کارهای انجام‌شده: ${tasks.where((t) => t.done).length}',
-            ),
-            Text(
-              'کارهای انجام‌نشده: ${tasks.where((t) => t.notDone).length}',
-            ),
-            Text(
-              'در انتظار: ${tasks.where((t) => !t.done && !t.notDone).length}',
-            ),
-          ],
-        ),
-      );
-
-  Widget _taskCard(TaskItem t) => Card(
-        color: Colors.white,
-        elevation: 0,
-        margin: const EdgeInsets.only(bottom: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        child: ListTile(
-          leading: Icon(
-            t.done
-                ? Icons.check_circle
-                : t.notDone
-                    ? Icons.cancel
-                    : Icons.circle_outlined,
-            color: t.done
-                ? Colors.green
-                : t.notDone
-                    ? Colors.red
-                    : Colors.grey,
-          ),
-          title: Text(
-            t.title,
-            style: TextStyle(
-              decoration: (t.done || t.notDone)
-                  ? TextDecoration.lineThrough
-                  : null,
-              color: t.notDone ? Colors.red : null,
-            ),
-          ),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${dateText(t.start)}  •  ${timeText(t.start)} تا ${timeText(t.end)}',
-              ),
-              if (t.attachments.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 5),
-                  child: Wrap(
-                    spacing: 5,
-                    children: t.attachments.take(4).map((a) {
-                      return Container(
-                        width: 26,
-                        height: 26,
-                        decoration: BoxDecoration(
-                          color: page,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: a['image'] == true
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: Image.memory(
-                                  base64Decode(a['data']),
-                                  fit: BoxFit.cover,
-                                ),
-                              )
-                            : const Icon(Icons.attach_file, size: 16),
-                      );
-                    }).toList(),
-                  ),
-                ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'انجام شد',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _setStatus(
-                  t,
-                  done: !t.done,
-                  notDone: false,
-                ),
-                icon: Icon(
-                  Icons.check_circle,
-                  color: t.done ? Colors.green : Colors.grey.shade400,
-                ),
-              ),
-              IconButton(
-                tooltip: 'انجام نشد',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _setStatus(
-                  t,
-                  done: false,
-                  notDone: !t.notDone,
-                ),
-                icon: Icon(
-                  Icons.cancel,
-                  color: t.notDone ? Colors.red : Colors.grey.shade400,
-                ),
-              ),
-              PopupMenuButton<String>(
-                onSelected: (v) {
-                  if (v == 'edit') _edit(t);
-                  if (v == 'delete') _delete(t);
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: Text('ویرایش'),
-                  ),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text('حذف'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      );
-}
-
-// ---------------- TASK EDITOR ----------------
-
-class TaskEditor extends StatefulWidget {
-  const TaskEditor({super.key, this.existing});
-
-  final TaskItem? existing;
-
-  @override
-  State<TaskEditor> createState() => _TaskEditorState();
-}
-
-class _TaskEditorState extends State<TaskEditor> {
-  late TextEditingController title;
-  late DateTime start;
-  late DateTime end;
-
-  List<Map<String, dynamic>> attachments = [];
-
-  @override
-  void initState() {
-    super.initState();
-
-    final t = widget.existing;
-    title = TextEditingController(text: t?.title ?? '');
-
-    final now = DateTime.now();
-
-    start = t?.start ?? DateTime(now.year, now.month, now.day, 9);
-    end = t?.end ?? DateTime(now.year, now.month, now.day, 10);
-
-    attachments = List<Map<String, dynamic>>.from(
-      t?.attachments ?? [],
-    );
-  }
-
-  @override
-  void dispose() {
-    title.dispose();
-    super.dispose();
-  }
-
-  String dateLabel(DateTime d) {
-    final j = d.toJalali();
-    return '${j.day} ${months[j.month - 1]} ${j.year}';
-  }
-
-  Future<void> chooseDate() async {
-    final initial = start.toJalali();
-
-    final picked = await showDialog<Jalali>(
-      context: context,
-      builder: (ctx) {
-        int y = initial.year;
-        int m = initial.month;
-        int d = initial.day;
-
-        return StatefulBuilder(
-          builder: (ctx, setD) => AlertDialog(
-            title: const Text('انتخاب تاریخ شمسی'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: DropdownButton<int>(
-                        isExpanded: true,
-                        value: m,
-                        items: List.generate(
-                          12,
-                          (i) => DropdownMenuItem(
-                            value: i + 1,
-                            child: Text(months[i]),
-                          ),
-                        ),
-                        onChanged: (v) => setD(() => m = v!),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: DropdownButton<int>(
-                        isExpanded: true,
-                        value: y,
-                        items: List.generate(
-                          11,
-                          (i) => DropdownMenuItem(
-                            value: initial.year - 5 + i,
-                            child: Text('${initial.year - 5 + i}'),
-                          ),
-                        ),
-                        onChanged: (v) => setD(() => y = v!),
-                      ),
-                    ),
-                  ],
-                ),
-                DropdownButton<int>(
-                  value: d.clamp(1, Jalali(y, m, 1).monthLength),
-                  items: List.generate(
-                    Jalali(y, m, 1).monthLength,
-                    (i) => DropdownMenuItem(
-                      value: i + 1,
-                      child: Text('${i + 1}'),
-                    ),
-                  ),
-                  onChanged: (v) => setD(() => d = v!),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('لغو'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(
-                  ctx,
-                  Jalali(
-                    y,
-                    m,
-                    d.clamp(1, Jalali(y, m, 1).monthLength),
-                  ),
-                ),
-                child: const Text('تأیید'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        final g = picked.toDateTime();
-        final newStart = DateTime(
-          g.year,
-          g.month,
-          g.day,
-          start.hour,
-          start.minute,
-        );
-
-        final duration = end.difference(start);
-
-        start = newStart;
-        end = newStart.add(
-          duration.isNegative
-              ? const Duration(hours: 1)
-              : duration,
-        );
-      });
-    }
-  }
-
-  Future<void> chooseTime(bool isStart) async {
-    final old = isStart ? start : end;
-
-    final p = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(old),
-      builder: (c, w) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: w!,
-      ),
-    );
-
-    if (p != null) {
-      setState(() {
-        if (isStart) {
-          start = DateTime(
-            start.year,
-            start.month,
-            start.day,
-            p.hour,
-            p.minute,
-          );
-        } else {
-          end = DateTime(
-            end.year,
-            end.month,
-            end.day,
-            p.hour,
-            p.minute,
-          );
-        }
-      });
-    }
-  }
-
-  Future<void> addFiles() async {
-    final res = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      withData: true,
-      type: FileType.any,
-    );
-
-    if (res == null) return;
-
-    for (final f in res.files) {
-      if (f.bytes == null) continue;
-
-      final isImg = RegExp(
-        r'^(png|jpe?g|gif|webp|bmp)$',
-      ).hasMatch((f.extension ?? '').toLowerCase());
-
-      attachments.add({
-        'name': f.name,
-        'data': base64Encode(f.bytes!),
-        'image': isImg,
-      });
-    }
-
-    if (mounted) setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(
-                top: Radius.circular(24),
-              ),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.existing == null
-                        ? 'کار جدید'
-                        : 'ویرایش کار',
-                    style: const TextStyle(
-                      fontSize: 21,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: title,
-                    decoration: const InputDecoration(
-                      labelText: 'عنوان کار',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: chooseDate,
-                    icon: const Icon(Icons.calendar_month),
-                    label: Text(dateLabel(start)),
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => chooseTime(true),
-                          child: Text(
-                            'شروع: ${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => chooseTime(false),
-                          child: Text(
-                            'پایان: ${end.hour.toString().padLeft(2, '0')}:${end.minute.toString().padLeft(2, '0')}',
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: addFiles,
-                      icon: const Icon(Icons.attach_file),
-                      label: Text(
-                        'افزودن پیوست (${attachments.length})',
-                      ),
-                    ),
-                  ),
-                  if (attachments.isNotEmpty)
-                    Wrap(
-                      spacing: 6,
-                      children: attachments.asMap().entries.map((e) {
-                        return InputChip(
-                          label: Text(
-                            e.value['name'],
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          onDeleted: () => setState(
-                            () => attachments.removeAt(e.key),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () {
-                        final name = title.text.trim();
-
-                        if (name.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('عنوان کار را وارد کن'),
-                            ),
-                          );
-                          return;
-                        }
-
-                        if (!end.isAfter(start)) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'زمان پایان باید بعد از شروع باشد',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-
-                        final old = widget.existing;
-
-                        Navigator.pop(
-                          context,
-                          TaskItem(
-                            id: old?.id ??
-                                DateTime.now()
-                                    .microsecondsSinceEpoch
-                                    .toString(),
-                            title: name,
-                            start: start,
-                            end: end,
-                            done: old?.done ?? false,
-                            notDone: old?.notDone ?? false,
-                            attachments: attachments,
-                          ),
-                        );
-                      },
-                      child: const Text('ذخیره'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
 }
